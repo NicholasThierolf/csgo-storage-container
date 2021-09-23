@@ -1,4 +1,4 @@
-const readlineSync = require("readline-sync");
+const inquirer = require("inquirer");
 const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const SteamCommunity = require("steamcommunity");
@@ -6,38 +6,37 @@ const communityUser = new SteamCommunity();
 
 let user = new SteamUser();
 let csgo, username, password, code;
+let initialized = false;
 
-function logIntoAccount() {
+async function logIntoAccount() {
   console.log(">> You need to log into your account!");
-  username = readlineSync.question("Username: ");
-  password = readlineSync.question("Password: ", {
-    hideEchoBack: true,
-  });
+
+  let { username, password, code } = await inquirer.prompt([
+    {
+      name: "username",
+      message: "Username: ",
+    },
+    {
+      name: "password",
+      type: "password",
+      message: "Password: ",
+    },
+    {
+      name: "code",
+      message: "Current Steam Guard code: ",
+    },
+  ]);
+
   user.logOn({
     accountName: username,
     password,
+    twoFactorCode: code,
   });
 }
 
-user.on("steamGuard", (domain, callback) => {
-  if (domain == null) {
-    //steamguard is in app
-    console.log(
-      ">> Please enter your Steam Guard code. You can find the Steam Guard code in your Steam app."
-    );
-  } else {
-    //steamguard is in email
-    console.log(
-      ">> Please enter your Steam Guard code. You have received an E-mail to your address ending in " +
-        domain
-    );
-  }
-  code = readlineSync.question("Code: ");
-
-  callback(code);
-});
-
 user.on("loggedOn", async (details, parental) => {
+  if (initialized) return;
+  initialized = true;
   csgo = new GlobalOffensive(user);
   initializedCSGO();
   user.gamesPlayed([730]);
@@ -66,7 +65,11 @@ async function startPacking() {
       items[item.classid].amount += 1;
       items[item.classid].ids.push(item.id);
     } else {
-      items[item.classid] = { amount: 1, ids: [item.id] };
+      items[item.classid] = {
+        amount: 1,
+        ids: [item.id],
+        classid: item.classid,
+      };
     }
   });
 
@@ -91,44 +94,69 @@ async function startPacking() {
     });
   });
 
+  /*
   let index = readlineSync.keyInSelect(
     itemNames,
     "Which Item do you want to Pack up?"
   );
   let itemName = itemNames[index];
-
-  let classid;
-  Object.keys(items).forEach((key) => {
-    if (itemName == items[key].name) {
-      classid = key;
-    }
-  });
-
+*/
   let containerNames = containers.map((container) => container.custom_name);
+  let { chosenItem, containerName } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "chosenItem",
+      message: "Which Item do you want to Pack up?",
+      loop: false,
+      choices: Object.keys(items)
+        .map((key) => {
+          return {
+            value: items[key],
+            name: `${items[key].name} (${items[key].amount})`,
+          };
+        })
+        .sort((a, b) => {
+          return b.value.amount - a.value.amount;
+        }),
+    },
+    {
+      type: "list",
+      name: "containerName",
+      message: "Which container do you want to put the items into?",
+      loop: false,
+      choices: containerNames,
+    },
+  ]);
 
-  index = readlineSync.keyInSelect(
-    containerNames,
-    "Which container do you want to put the items into?"
-  );
-
-  let containerName = containerNames[index];
   let chosenContainer;
   containers.forEach((container) => {
     if (container.custom_name == containerName) {
       chosenContainer = container;
     }
   });
-  let amount = await chooseAmount(chosenContainer, items[classid]);
+  let amount = await chooseAmount(chosenContainer, chosenItem);
 
   for (let i = 0; i < amount; i++) {
-    csgo.addToCasket(chosenContainer.id, items[classid].ids[i]);
+    await addSingleItemIntoCasket(chosenContainer.id, chosenItem.ids[i]);
   }
 
   console.log(
     ">> Everything has been tightly packed into the container of your choice!"
   );
-  if (readlineSync.keyInYN("Do you want to store more items? ")) startPacking();
-  else process.exit(1);
+  let { repeat } = await inquirer.prompt({
+    name: "repeat",
+    type: "boolean",
+    message: "Do you want to store more items? ",
+  });
+  if (repeat) startPacking();
+  else process.exit(0);
+}
+
+function addSingleItemIntoCasket(item, casket) {
+  return new Promise((resolve, reject) => {
+    csgo.addToCasket(item, casket);
+    setTimeout(resolve, 50);
+  });
 }
 
 function chooseAmount(container, item) {
@@ -138,14 +166,18 @@ function chooseAmount(container, item) {
         1000 - container.casket_contained_item_count
       } free spaces`
     );
-    let amount = readlineSync.question(
-      `How many of the ${item.amount} ${item.name}s do you want to store? `
-    );
+    let { amount } = await inquirer.prompt({
+      name: "amount",
+      type: "number",
+      message: `How many of the ${item.amount} ${item.name}s do you want to store? `,
+    });
 
     if (
       amount > item.amount ||
-      amount > 1000 - container.casket_contained_item_count
+      amount > 1000 - container.casket_contained_item_count ||
+      amount < 1
     ) {
+      console.log("You can't store that many items!");
       amount = await chooseAmount(container, item);
       resolve(amount);
     } else {

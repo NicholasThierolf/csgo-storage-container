@@ -5,7 +5,7 @@
   "main": "index.js",
   "dependencies": {
     "globaloffensive": "^2.1.0",
-    "readline-sync": "^1.4.10",
+    "inquirer": "^8.1.5",
     "steam-user": "^4.19.12",
     "steamcommunity": "^3.43.1"
   },
