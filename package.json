@@ -1,0 +1,19 @@
+{
+  "name": "csgo-storage-container",
+  "version": "1.0.0",
+  "description": "loads items into storage containers automatically",
+  "main": "index.js",
+  "dependencies": {
+    "globaloffensive": "^2.1.0",
+    "readline-sync": "^1.4.10",
+    "steam-user": "^4.19.12",
+    "steamcommunity": "^3.43.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "author": "Nicholas Thierolf",
+  "license": "ISC"
+}
