@@ -136,9 +136,20 @@ async function startPacking() {
   });
   let amount = await chooseAmount(chosenContainer, chosenItem);
 
-  for (let i = 0; i < amount; i++) {
-    await addSingleItemIntoCasket(chosenContainer.id, chosenItem.ids[i]);
-  }
+  csgo.on("itemRemoved", (item) => {
+    if (item.id in casketPromises) {
+      const fn = casketPromises[item.id].resolve;
+      delete casketPromises[item.id];
+      fn();
+    }
+  });
+
+  const casketItems = chosenItem.ids.slice(0, amount);
+  await casketItems.reduce(
+    (promiseChain, item) =>
+      promiseChain.then(() => addToCasket(chosenContainer.id, item)),
+    Promise.resolve()
+  );
 
   console.log(
     ">> Everything has been tightly packed into the container of your choice!"
@@ -152,11 +163,16 @@ async function startPacking() {
   else process.exit(0);
 }
 
-function addSingleItemIntoCasket(item, casket) {
-  return new Promise((resolve, reject) => {
-    csgo.addToCasket(item, casket);
-    setTimeout(resolve, 50);
+const casketPromises = {};
+function addToCasket(container, item) {
+  csgo.addToCasket(container, item);
+  let p = new Promise((resolve, reject) => {
+    casketPromises[item] = {
+      resolve,
+      reject,
+    };
   });
+  return p;
 }
 
 function chooseAmount(container, item) {
