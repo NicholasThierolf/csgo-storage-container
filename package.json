@@ -4,6 +4,7 @@
   "description": "loads items into storage containers automatically",
   "main": "index.js",
   "dependencies": {
+    "cli-progress": "^3.9.1",
     "globaloffensive": "^2.1.0",
     "inquirer": "^8.1.5",
     "steam-user": "^4.19.12",

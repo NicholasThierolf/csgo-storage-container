@@ -3,6 +3,9 @@ const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const SteamCommunity = require("steamcommunity");
 const communityUser = new SteamCommunity();
+const cliProgress = require("cli-progress");
+
+const { Loader } = require("./container-interfaces.js");
 
 let user = new SteamUser();
 let csgo, username, password, code;
@@ -136,33 +139,64 @@ async function startPacking() {
   });
   let amount = await chooseAmount(chosenContainer, chosenItem);
 
+  let itemsToLoad = [];
   for (let i = 0; i < amount; i++) {
-    await addSingleItemIntoCasket(chosenContainer.id, chosenItem.ids[i]);
+    itemsToLoad.push(chosenItem.ids[i]);
   }
+
+  await loadItems(chosenContainer.id, itemsToLoad);
 
   console.log(
     ">> Everything has been tightly packed into the container of your choice!"
   );
   let { repeat } = await inquirer.prompt({
     name: "repeat",
-    type: "boolean",
-    message: "Do you want to store more items? ",
+    type: "list",
+    message: "Do you want to pack up more items?",
+    choices: [
+      { name: "Yes!", value: true },
+      { name: "No!", value: false },
+    ],
   });
   if (repeat) startPacking();
-  else process.exit(0);
+  else {
+    console.log(
+      ">> Thank you for using this tool, feel free to give it a Star on Github <3"
+    );
+    process.exit(0);
+  }
 }
 
-function addSingleItemIntoCasket(item, casket) {
+function loadItems(container, items) {
   return new Promise((resolve, reject) => {
-    csgo.addToCasket(item, casket);
-    setTimeout(resolve, 50);
+    let progressBar = new cliProgress.SingleBar(
+      {
+        clearOnComplete: true,
+        format: "[{bar}] {value} of {total} items packed",
+      },
+      cliProgress.Presets.shades_classic
+    );
+
+    progressBar.start(items.length, 0);
+
+    let loader = new Loader(csgo);
+
+    loader.on("finished", () => {
+      progressBar.stop();
+      resolve();
+    });
+
+    loader.on("added", (totalLoaded) => {
+      progressBar.update(totalLoaded);
+    });
+    loader.load(container, items);
   });
 }
 
 function chooseAmount(container, item) {
   return new Promise(async (resolve, reject) => {
     console.log(
-      `The chosen container has ${
+      `>>The chosen container has ${
         1000 - container.casket_contained_item_count
       } free spaces`
     );
