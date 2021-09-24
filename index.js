@@ -97,13 +97,6 @@ async function startPacking() {
     });
   });
 
-  /*
-  let index = readlineSync.keyInSelect(
-    itemNames,
-    "Which Item do you want to Pack up?"
-  );
-  let itemName = itemNames[index];
-*/
   let containerNames = containers.map((container) => container.custom_name);
   let { chosenItem, containerName } = await inquirer.prompt([
     {
@@ -203,7 +196,11 @@ function chooseAmount(container, item) {
     let { amount } = await inquirer.prompt({
       name: "amount",
       type: "number",
-      message: `How many of the ${item.amount} ${item.name}s do you want to store? `,
+      message: `How many of the ${item.amount} ${item.name}s do you want to store? (Enter nothing to store the max amount)`,
+      default: Math.min(
+        item.amount,
+        1000 - container.casket_contained_item_count
+      ),
     });
 
     if (
