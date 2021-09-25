@@ -3,9 +3,10 @@ const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const SteamCommunity = require("steamcommunity");
 const communityUser = new SteamCommunity();
+const cliProgress = require("cli-progress");
 
 let user = new SteamUser();
-let csgo, username, password, code;
+let csgo;
 let initialized = false;
 
 async function logIntoAccount() {
@@ -26,6 +27,11 @@ async function logIntoAccount() {
       message: "Current Steam Guard code: ",
     },
   ]);
+
+  user.on("error", (err) => {
+    console.log(err);
+    process.exit(0);
+  });
 
   user.logOn({
     accountName: username,
@@ -94,13 +100,6 @@ async function startPacking() {
     });
   });
 
-  /*
-  let index = readlineSync.keyInSelect(
-    itemNames,
-    "Which Item do you want to Pack up?"
-  );
-  let itemName = itemNames[index];
-*/
   let containerNames = containers.map((container) => container.custom_name);
   let { chosenItem, containerName } = await inquirer.prompt([
     {
@@ -145,22 +144,39 @@ async function startPacking() {
   });
 
   const casketItems = chosenItem.ids.slice(0, amount);
-  await casketItems.reduce(
-    (promiseChain, item) =>
-      promiseChain.then(() => addToCasket(chosenContainer.id, item)),
-    Promise.resolve()
+  const progressBar = new cliProgress.SingleBar(
+    {
+      clearOnComplete: true,
+      format: "[{bar}] {value} of {total} items packed",
+    },
+    cliProgress.Presets.shades_classic
   );
+  progressBar.start(casketItems.length, 0);
+  for ([index, item] of casketItems.entries()) {
+    await addToCasket(chosenContainer.id, item);
+    progressBar.update(index + 1);
+  }
+  progressBar.stop();
 
   console.log(
     ">> Everything has been tightly packed into the container of your choice!"
   );
   let { repeat } = await inquirer.prompt({
     name: "repeat",
-    type: "boolean",
-    message: "Do you want to store more items? ",
+    type: "list",
+    message: "Do you want to pack up more items?",
+    choices: [
+      { name: "Yes!", value: true },
+      { name: "No!", value: false },
+    ],
   });
   if (repeat) startPacking();
-  else process.exit(0);
+  else {
+    console.log(
+      ">> Thank you for using this tool, feel free to give it a Star on Github <3"
+    );
+    process.exit(0);
+  }
 }
 
 const casketPromises = {};
@@ -178,14 +194,18 @@ function addToCasket(container, item) {
 function chooseAmount(container, item) {
   return new Promise(async (resolve, reject) => {
     console.log(
-      `The chosen container has ${
+      `>>The chosen container has ${
         1000 - container.casket_contained_item_count
       } free spaces`
     );
     let { amount } = await inquirer.prompt({
       name: "amount",
       type: "number",
-      message: `How many of the ${item.amount} ${item.name}s do you want to store? `,
+      message: `How many of the ${item.amount} ${item.name}s do you want to store? (Enter nothing to store the max amount)`,
+      default: Math.min(
+        item.amount,
+        1000 - container.casket_contained_item_count
+      ),
     });
 
     if (
