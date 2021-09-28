@@ -6,12 +6,16 @@ const communityUser = new SteamCommunity();
 const cliProgress = require("cli-progress");
 
 const { Loader } = require("./container-interfaces.js");
+const { ItemNames } = require("./item-names.js");
 
 let user = new SteamUser();
-let csgo, username, password, code;
+let csgo;
 let initialized = false;
 
+let itemNames = new ItemNames();
+
 async function logIntoAccount() {
+  await itemNames.init();
   console.log(">> You need to log into your account!");
 
   let { username, password, code } = await inquirer.prompt([
@@ -48,21 +52,99 @@ user.on("loggedOn", async (details, parental) => {
 function initializedCSGO() {
   csgo.on("connectedToGC", () => {
     console.log(">> Logged into your account!");
-    startPacking();
+    mainMenu();
   });
 }
 
-async function startPacking() {
+async function structureInventory(inventory) {}
+
+function getAllContainers() {
   let inventory = csgo.inventory;
   let containers = [];
-  let items = {};
-
-  let assets = await getInventory(user.steamID);
-
   inventory.forEach((item) => {
     if (item.def_index == 1201) containers.push(item);
   });
+  return containers;
+}
 
+async function unloadItemsMenu() {
+  let containers = getAllContainers();
+
+  let { container } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "container",
+      message: "Which container do you want to get Items from?",
+      loop: false,
+      choices: containers.map((container) => {
+        return {
+          value: container.id,
+          name: `${container.custom_name} (${container.casket_contained_item_count})`,
+        };
+      }),
+    },
+  ]);
+
+  console.log("getting from", container, containers);
+
+  let items = await getContainerItems(container);
+
+  items.forEach((item) => {
+    console.log(item);
+  });
+  //console.log(items);
+
+  //item looks like (big pain):
+  let item = {
+    attribute: [[Object], [Object]],
+    equipped_state: [],
+    id: "17439912267",
+    account_id: 158862006,
+    inventory: 1,
+    def_index: 4018,
+    quantity: 1,
+    level: 1,
+    quality: 4,
+    flags: 4,
+    origin: 0,
+    custom_name: null,
+    custom_desc: null,
+    interior_item: null,
+    in_use: false,
+    style: null,
+    original_id: null,
+    rarity: 1,
+    position: 1,
+    casket_id: "17260735851",
+  };
+
+  process.exit(0);
+}
+
+function getContainerItems(container) {
+  return new Promise((resolve, reject) => {
+    console.log("got here");
+    csgo.getCasketContents(container, (err, items) => {
+      console.log("got here again");
+      if (err) {
+        //todo: handle err
+        console.log("got error :(");
+        reject();
+      } else {
+        console.log("got to resolve", items);
+        resolve(items);
+      }
+    });
+  });
+}
+
+async function loadItemsMenu() {
+  let containers = getAllContainers();
+  let items = getInventory(); //{};
+
+  //let assets = await getInventory(user.steamID);
+
+  /*
   assets.forEach((item) => {
     if (items[item.classid] !== undefined) {
       items[item.classid].amount += 1;
@@ -74,7 +156,7 @@ async function startPacking() {
         classid: item.classid,
       };
     }
-  });
+  });*/
 
   let itemsArray = [];
 
@@ -82,20 +164,7 @@ async function startPacking() {
     itemsArray.push({ classid: key });
   });
 
-  let descriptions = await getAssetClassInfo(itemsArray);
-  let itemNames = [];
-
-  descriptions.forEach((description) => {
-    Object.keys(items).forEach((key) => {
-      if (key == description.classid) {
-        items[key].name = description.market_hash_name;
-
-        if (items[key].amount > 10) {
-          itemNames.push(description.market_hash_name);
-        }
-      }
-    });
-  });
+  //let descriptions = await getAssetClassInfo(itemsArray);
 
   let containerNames = containers.map((container) => container.custom_name);
   let { chosenItem, containerName } = await inquirer.prompt([
@@ -142,22 +211,7 @@ async function startPacking() {
   console.log(
     ">> Everything has been tightly packed into the container of your choice!"
   );
-  let { repeat } = await inquirer.prompt({
-    name: "repeat",
-    type: "list",
-    message: "Do you want to pack up more items?",
-    choices: [
-      { name: "Yes!", value: true },
-      { name: "No!", value: false },
-    ],
-  });
-  if (repeat) startPacking();
-  else {
-    console.log(
-      ">> Thank you for using this tool, feel free to give it a Star on Github <3"
-    );
-    process.exit(0);
-  }
+  mainMenu();
 }
 
 function loadItems(container, items) {
@@ -217,6 +271,33 @@ function chooseAmount(container, item) {
   });
 }
 
+function getInventory() {
+  let inventory = csgo.inventory;
+  let items = {};
+  inventory.forEach((item) => {
+    if (item.def_index !== 1201) {
+      //console.log(item);
+      let name = itemNames.nameItem(
+        item.def_index,
+        item.paint_wear,
+        item.paint_index
+      );
+      if (name === false) return;
+      if (items[name]) {
+        items[name].ids.push(item.id);
+        items[name].amount += 1;
+      } else {
+        items[name] = {
+          name: name,
+          ids: [item.id],
+          amount: 1,
+        };
+      }
+    }
+  });
+  return items;
+}
+/*
 function getInventory(steamid) {
   return new Promise((resolve, reject) => {
     communityUser.getUserInventoryContents(
@@ -234,7 +315,7 @@ function getInventory(steamid) {
       }
     );
   });
-}
+}*/
 
 function getAssetClassInfo(itemsArray) {
   return new Promise((resolve, reject) => {
@@ -246,6 +327,40 @@ function getAssetClassInfo(itemsArray) {
       resolve(descriptions);
     });
   });
+}
+
+async function mainMenu() {
+  let { choice } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "choice",
+      message: "What do you want to do?",
+      loop: false,
+      choices: [
+        { name: "Load Items into a storage container", value: "load" },
+        { name: "Unload Items from a storage container", value: "unload" },
+        { name: "Quit", value: "quit" },
+      ],
+    },
+  ]);
+  switch (choice) {
+    case "load":
+      loadItemsMenu();
+      break;
+    case "unload":
+      unloadItemsMenu();
+      break;
+    case "quit":
+      quit();
+      break;
+  }
+}
+
+function quit() {
+  console.log(
+    ">> Thank you for using this tool, feel free to give it a Star on Github <3"
+  );
+  process.exit(0);
 }
 
 logIntoAccount();
