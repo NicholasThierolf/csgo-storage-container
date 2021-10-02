@@ -20,7 +20,10 @@ const ItemNames = class ItemNames {
     });
   }
 
-  nameItem(index, wear, paintIndex = null) {
+  nameItem(inputItem) {
+    let paintIndex = inputItem.paint_index;
+    let wear = inputItem.paint_wear;
+    let index = inputItem.def_index;
     if (paintIndex) {
       let item = this.skins[paintIndex];
       let name = this.names[`PaintKit_${item.name}_Tag`];

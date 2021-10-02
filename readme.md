@@ -6,7 +6,7 @@ This application is using Nodejs and requires a little bit of setup that you mig
 
 
 # Setup
-Install [Node.js](nodejs.org) Version 14.0.0 or higher
+Install [Node.js](nodejs.org) Version 12 or higher
 
 install git
 
