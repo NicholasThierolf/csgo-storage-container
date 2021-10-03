@@ -1,18 +1,19 @@
 const inquirer = require("inquirer");
 const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
-const SteamCommunity = require("steamcommunity");
-const communityUser = new SteamCommunity();
 const cliProgress = require("cli-progress");
 
 let user = new SteamUser();
 let csgo;
 let initialized = false;
 
+const itemNames = require("./item-names");
+
 async function logIntoAccount() {
+  await itemNames.init();
   console.log(">> You need to log into your account!");
 
-  let { username, password, code } = await inquirer.prompt([
+  const { username, password, code } = await inquirer.prompt([
     {
       name: "username",
       message: "Username: ",
@@ -51,57 +52,77 @@ user.on("loggedOn", async (details, parental) => {
 function initializedCSGO() {
   csgo.on("connectedToGC", () => {
     console.log(">> Logged into your account!");
-    startPacking();
+    mainMenu();
   });
 }
 
-async function startPacking() {
-  let inventory = csgo.inventory;
-  let containers = [];
-  let items = {};
+function getAllContainers() {
+  return csgo.inventory.filter((item) => item.def_index === 1201);
+}
 
-  let assets = await getInventory(user.steamID);
+async function unloadItemsMenu() {
+  const containers = getAllContainers();
+  const { container } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "container",
+      message: "Which container do you want to get Items from?",
+      loop: false,
+      choices: containers.map((container) => {
+        return {
+          value: container.id,
+          name: `${container.custom_name} (${container.casket_contained_item_count})`,
+        };
+      }),
+    },
+  ]);
 
-  inventory.forEach((item) => {
-    if (item.def_index == 1201) containers.push(item);
-  });
+  const items = await getContainerItems(container);
+  const formattedItems = formatInventory(items);
+  const { chosenItem } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "chosenItem",
+      message: "Which Item do you want retrieve?",
+      loop: false,
+      choices: Object.keys(formattedItems)
+        .map((key) => {
+          return {
+            value: formattedItems[key],
+            name: `${key} (${formattedItems[key].amount})`,
+          };
+        })
+        .sort((a, b) => {
+          return b.value.amount - a.value.amount;
+        }),
+    },
+  ]);
 
-  assets.forEach((item) => {
-    if (items[item.classid] !== undefined) {
-      items[item.classid].amount += 1;
-      items[item.classid].ids.push(item.id);
-    } else {
-      items[item.classid] = {
-        amount: 1,
-        ids: [item.id],
-        classid: item.classid,
-      };
-    }
-  });
+  const amount = await chooseUnloadAmount(chosenItem);
+  const casketItems = chosenItem.ids.slice(0, amount);
+  await moveItems(container, casketItems, false);
+  console.log(">> Everything has been unloaded out of the container!");
+  mainMenu();
+}
 
-  let itemsArray = [];
-
-  Object.keys(items).forEach((key) => {
-    itemsArray.push({ classid: key });
-  });
-
-  let descriptions = await getAssetClassInfo(itemsArray);
-  let itemNames = [];
-
-  descriptions.forEach((description) => {
-    Object.keys(items).forEach((key) => {
-      if (key == description.classid) {
-        items[key].name = description.market_hash_name;
-
-        if (items[key].amount > 10) {
-          itemNames.push(description.market_hash_name);
-        }
+function getContainerItems(container) {
+  return new Promise((resolve, reject) => {
+    csgo.getCasketContents(container, (err, items) => {
+      if (err) {
+        //todo: handle err
+        console.log("Something went wrong");
+        reject();
+      } else {
+        resolve(items);
       }
     });
   });
+}
 
-  let containerNames = containers.map((container) => container.custom_name);
-  let { chosenItem, containerName } = await inquirer.prompt([
+async function loadItemsMenu() {
+  const containers = getAllContainers();
+  const items = getInventory();
+  const { chosenItem, containerName } = await inquirer.prompt([
     {
       type: "list",
       name: "chosenItem",
@@ -123,18 +144,44 @@ async function startPacking() {
       name: "containerName",
       message: "Which container do you want to put the items into?",
       loop: false,
-      choices: containerNames,
+      choices: containers.map((container) => container.custom_name),
     },
   ]);
 
-  let chosenContainer;
-  containers.forEach((container) => {
-    if (container.custom_name == containerName) {
-      chosenContainer = container;
-    }
-  });
-  let amount = await chooseAmount(chosenContainer, chosenItem);
+  const chosenContainer = containers.find(
+    (container) => container.custom_name === containerName
+  );
+  const amount = await chooseLoadAmount(chosenContainer, chosenItem);
+  const casketItems = chosenItem.ids.slice(0, amount);
+  await moveItems(chosenContainer.id, casketItems, true);
+  console.log(">> Everything has been packed into the container!");
+  mainMenu();
+}
 
+async function moveItems(container, items, directionIn) {
+  const progressBar = new cliProgress.SingleBar(
+    {
+      clearOnComplete: true,
+      format: `[{bar}] {value} of {total} items ${
+        directionIn ? "packed" : "unpacked"
+      }`,
+    },
+    cliProgress.Presets.shades_classic
+  );
+  progressBar.start(items.length, 0);
+  for ([index, item] of items.entries()) {
+    if (directionIn) {
+      await addToCasket(container, item);
+    } else {
+      await removeFromCasket(container, item);
+    }
+    progressBar.update(index + 1);
+  }
+  progressBar.stop();
+}
+
+const casketPromises = {};
+function addToCasket(container, item) {
   csgo.on("itemRemoved", (item) => {
     if (item.id in casketPromises) {
       const fn = casketPromises[item.id].resolve;
@@ -142,45 +189,6 @@ async function startPacking() {
       fn();
     }
   });
-
-  const casketItems = chosenItem.ids.slice(0, amount);
-  const progressBar = new cliProgress.SingleBar(
-    {
-      clearOnComplete: true,
-      format: "[{bar}] {value} of {total} items packed",
-    },
-    cliProgress.Presets.shades_classic
-  );
-  progressBar.start(casketItems.length, 0);
-  for ([index, item] of casketItems.entries()) {
-    await addToCasket(chosenContainer.id, item);
-    progressBar.update(index + 1);
-  }
-  progressBar.stop();
-
-  console.log(
-    ">> Everything has been tightly packed into the container of your choice!"
-  );
-  let { repeat } = await inquirer.prompt({
-    name: "repeat",
-    type: "list",
-    message: "Do you want to pack up more items?",
-    choices: [
-      { name: "Yes!", value: true },
-      { name: "No!", value: false },
-    ],
-  });
-  if (repeat) startPacking();
-  else {
-    console.log(
-      ">> Thank you for using this tool, feel free to give it a Star on Github <3"
-    );
-    process.exit(0);
-  }
-}
-
-const casketPromises = {};
-function addToCasket(container, item) {
   csgo.addToCasket(container, item);
   let p = new Promise((resolve, reject) => {
     casketPromises[item] = {
@@ -191,17 +199,63 @@ function addToCasket(container, item) {
   return p;
 }
 
-function chooseAmount(container, item) {
+function removeFromCasket(container, item) {
+  csgo.on("itemAcquired", (item) => {
+    if (item.id in casketPromises) {
+      const fn = casketPromises[item.id].resolve;
+      delete casketPromises[item.id];
+      fn();
+    }
+  });
+  csgo.removeFromCasket(container, item);
+  let p = new Promise((resolve, reject) => {
+    casketPromises[item] = {
+      resolve,
+      reject,
+    };
+  });
+  return p;
+}
+
+function chooseUnloadAmount(item) {
   return new Promise(async (resolve, reject) => {
     console.log(
-      `>>The chosen container has ${
+      `>> You have ${
+        1000 - csgo.inventory.length
+      } free spaces in your inventory`
+    );
+    let { amount } = await inquirer.prompt({
+      name: "amount",
+      type: "number",
+      message: `How many of the ${item.amount} ${item.name}s do you want to unload?`,
+      default: Math.min(item.amount, 1000 - csgo.inventory.length),
+    });
+
+    if (
+      amount > item.amount ||
+      amount > 1000 - csgo.inventory.length ||
+      amount < 1
+    ) {
+      console.log("You can't unload that many items!");
+      amount = await chooseUnloadAmount(item);
+      resolve(amount);
+    } else {
+      resolve(amount);
+    }
+  });
+}
+
+function chooseLoadAmount(container, item) {
+  return new Promise(async (resolve, reject) => {
+    console.log(
+      `>> The chosen container has ${
         1000 - container.casket_contained_item_count
       } free spaces`
     );
     let { amount } = await inquirer.prompt({
       name: "amount",
       type: "number",
-      message: `How many of the ${item.amount} ${item.name}s do you want to store? (Enter nothing to store the max amount)`,
+      message: `How many of the ${item.amount} ${item.name}s do you want to store?`,
       default: Math.min(
         item.amount,
         1000 - container.casket_contained_item_count
@@ -214,7 +268,7 @@ function chooseAmount(container, item) {
       amount < 1
     ) {
       console.log("You can't store that many items!");
-      amount = await chooseAmount(container, item);
+      amount = await chooseLoadAmount(container, item);
       resolve(amount);
     } else {
       resolve(amount);
@@ -222,35 +276,60 @@ function chooseAmount(container, item) {
   });
 }
 
-function getInventory(steamid) {
-  return new Promise((resolve, reject) => {
-    communityUser.getUserInventoryContents(
-      steamid,
-      730,
-      2,
-      false,
-      (err, inventory) => {
-        if (err) {
-          reject();
-          throw err;
-        }
-
-        resolve(inventory);
-      }
-    );
-  });
+function getInventory() {
+  return formatInventory(csgo.inventory);
 }
 
-function getAssetClassInfo(itemsArray) {
-  return new Promise((resolve, reject) => {
-    user.getAssetClassInfo("en", 730, itemsArray, (err, descriptions) => {
-      if (err) {
-        reject();
-        return;
-      }
-      resolve(descriptions);
-    });
-  });
+function formatInventory(inventory) {
+  return inventory.reduce((inv, item) => {
+    if (item.def_index === 1201) return inv;
+    const name = itemNames.nameItem(item);
+    if (!name) return inv;
+    if (!inv[name]) {
+      inv[name] = {
+        name: name,
+        ids: [],
+        amount: 0,
+      };
+    }
+    inv[name].ids.push(item.id);
+    inv[name].amount += 1;
+    return inv;
+  }, {});
+}
+
+async function mainMenu() {
+  let { choice } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "choice",
+      message: "What do you want to do?",
+      loop: false,
+      choices: [
+        { name: "Load Items into a storage container", value: "load" },
+        { name: "Unload Items from a storage container", value: "unload" },
+        { name: "Quit", value: "quit" },
+      ],
+    },
+  ]);
+  switch (choice) {
+    case "load":
+      loadItemsMenu();
+      break;
+    case "unload":
+      unloadItemsMenu();
+      break;
+    case "quit":
+      quit();
+      break;
+  }
+}
+
+function quit() {
+  console.log(
+    ">> Thank you for using this tool, feel free to give it a Star on Github <3"
+  );
+  process.exit(0);
 }
 
 logIntoAccount();
