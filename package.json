@@ -9,8 +9,7 @@
     "inquirer": "^8.1.5",
     "node-fetch": "^2.6.5",
     "simple-vdf": "^1.1.1",
-    "steam-user": "^4.19.12",
-    "steamcommunity": "^3.43.1"
+    "steam-user": "^4.19.12"
   },
   "devDependencies": {},
   "scripts": {
