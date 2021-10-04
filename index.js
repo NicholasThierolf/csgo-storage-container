@@ -277,12 +277,14 @@ function chooseLoadAmount(container, item) {
 }
 
 function getInventory() {
-  return formatInventory(csgo.inventory);
+  return formatInventory(csgo.inventory, true);
 }
 
-function formatInventory(inventory) {
+function formatInventory(inventory, filterCasketItems = false) {
   return inventory.reduce((inv, item) => {
-    if (item.def_index === 1201) return inv;
+    if (item.def_index === 1201 || (filterCasketItems && item.casket_id)) {
+      return inv;
+    }
     const name = itemNames.nameItem(item);
     if (!name) return inv;
     if (!inv[name]) {
