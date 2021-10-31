@@ -3,6 +3,7 @@ const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const cliProgress = require("cli-progress");
 
+const CASKET_MOVE_TIMEOUT = 1000;
 let user = new SteamUser();
 let csgo;
 let initialized = false;
@@ -53,6 +54,20 @@ function initializedCSGO() {
   csgo.on("connectedToGC", () => {
     console.log(">> Logged into your account!");
     mainMenu();
+  });
+  csgo.on("itemRemoved", (item) => {
+    if (item.id in casketPromises) {
+      clearTimeout(casketPromises[item.id].timeout);
+      casketPromises[item.id].resolve();
+      delete casketPromises[item.id];
+    }
+  });
+  csgo.on("itemAcquired", (item) => {
+    if (item.id in casketPromises) {
+      clearTimeout(casketPromises[item.id].timeout);
+      casketPromises[item.id].resolve();
+      delete casketPromises[item.id];
+    }
   });
 }
 
@@ -182,38 +197,33 @@ async function moveItems(container, items, directionIn) {
 
 const casketPromises = {};
 function addToCasket(container, item) {
-  csgo.on("itemRemoved", (item) => {
-    if (item.id in casketPromises) {
-      const fn = casketPromises[item.id].resolve;
-      delete casketPromises[item.id];
-      fn();
-    }
-  });
   csgo.addToCasket(container, item);
   let p = new Promise((resolve, reject) => {
     casketPromises[item] = {
       resolve,
       reject,
+      timeout: setTimeout(() => {
+        delete casketPromises[item];
+        reject();
+      }, CASKET_MOVE_TIMEOUT),
     };
   });
   return p;
 }
 
 function removeFromCasket(container, item) {
-  csgo.on("itemAcquired", (item) => {
-    if (item.id in casketPromises) {
-      const fn = casketPromises[item.id].resolve;
-      delete casketPromises[item.id];
-      fn();
-    }
-  });
   csgo.removeFromCasket(container, item);
   let p = new Promise((resolve, reject) => {
     casketPromises[item] = {
       resolve,
       reject,
+      timeout: setTimeout(() => {
+        delete casketPromises[item];
+        reject();
+      }, CASKET_MOVE_TIMEOUT),
     };
   });
+
   return p;
 }
 
